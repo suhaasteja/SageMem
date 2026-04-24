@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sagemem"
+version = "0.1.0"
+description = "GPU-memory-hierarchy-inspired memory layer for multi-agent LLM systems"
+requires-python = ">=3.12"
+dependencies = [
+    # LLM
+    "anthropic>=0.25.0",
+    # L2 — Redis
+    "redis[hiredis]>=5.0.0",
+    # L3 + DRAM — Postgres
+    "asyncpg>=0.29.0",
+    "psycopg[binary]>=3.1.0",
+    # Embeddings
+    "voyageai>=0.2.0",
+    "sentence-transformers>=3.0.0",
+    # Validation
+    "pydantic>=2.0.0",
+    # Metrics
+    "prometheus-client>=0.20.0",
+    # API (Stage 7)
+    "fastapi>=0.111.0",
+    "uvicorn>=0.29.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "hypothesis>=6.100.0",
+    "alembic>=1.13.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sagemem"]
