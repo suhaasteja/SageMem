@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SageMem — Live Coherence Demo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    background: #0d1117;
+    color: #c9d1d9;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    padding: 18px 32px;
+    border-bottom: 1px solid #21262d;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  header h1 { font-size: 18px; color: #f0f6fc; font-weight: 600; }
+  header .subtitle { font-size: 12px; color: #8b949e; }
+
+  #status-bar {
+    padding: 10px 32px;
+    background: #161b22;
+    border-bottom: 1px solid #21262d;
+    font-size: 13px;
+    color: #58a6ff;
+    min-height: 38px;
+    transition: all 0.3s;
+  }
+
+  .main {
+    display: grid;
+    grid-template-columns: 1fr 220px 1fr;
+    gap: 0;
+    flex: 1;
+    padding: 24px;
+    gap: 16px;
+  }
+
+  /* Agent panels */
+  .agent-panel {
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .agent-panel h2 {
+    font-size: 14px;
+    color: #f0f6fc;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .agent-id { font-size: 11px; color: #8b949e; }
+
+  .tier-box {
+    background: #0d1117;
+    border: 1px solid #21262d;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    transition: all 0.4s ease;
+  }
+  .tier-box .tier-label {
+    font-size: 10px;
+    color: #8b949e;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 4px;
+  }
+  .tier-box .tier-key   { font-size: 12px; color: #79c0ff; }
+  .tier-box .tier-value { font-size: 11px; color: #a5d6ff; margin-top: 2px; word-break: break-word; }
+  .tier-box .tier-mesi  { font-size: 10px; margin-top: 4px; font-weight: 600; }
+
+  /* MESI state colors */
+  .state-modified  { border-color: #f78166; background: #1f1210; }
+  .state-exclusive { border-color: #7ee787; background: #0f1f10; }
+  .state-shared    { border-color: #58a6ff; background: #0c1825; }
+  .state-invalid   { border-color: #f0883e; background: #1f1710; opacity: 0.7; }
+  .state-empty     { border-color: #21262d; }
+  .state-written   { border-color: #3fb950; background: #0f1f10; }
+
+  .mesi-Modified  { color: #f78166; }
+  .mesi-Exclusive { color: #7ee787; }
+  .mesi-Shared    { color: #58a6ff; }
+  .mesi-Invalid   { color: #f0883e; }
+
+  /* Shared tier column */
+  .shared-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .shared-tier {
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    padding: 14px;
+    transition: all 0.4s ease;
+  }
+  .shared-tier h3 { font-size: 12px; color: #f0f6fc; margin-bottom: 10px; }
+  .shared-tier .s-label { font-size: 10px; color: #8b949e; text-transform: uppercase; }
+  .shared-tier .s-key   { font-size: 12px; color: #79c0ff; margin-top: 3px; }
+  .shared-tier .s-value { font-size: 11px; color: #a5d6ff; margin-top: 2px; word-break: break-word; }
+
+  /* Event log */
+  #event-log {
+    margin: 0 24px 24px;
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    padding: 14px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  #event-log h3 { font-size: 12px; color: #8b949e; margin-bottom: 8px; }
+  .log-entry {
+    font-size: 11px;
+    padding: 3px 0;
+    border-bottom: 1px solid #21262d;
+    display: flex;
+    gap: 10px;
+    animation: fadeIn 0.3s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; } }
+  .log-time  { color: #484f58; min-width: 56px; }
+  .log-badge {
+    font-size: 9px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+    min-width: 70px;
+    text-align: center;
+  }
+  .badge-invalidate { background: #f78166; color: #0d1117; }
+  .badge-promote    { background: #7ee787; color: #0d1117; }
+  .badge-hit        { background: #3fb950; color: #0d1117; }
+  .badge-miss       { background: #484f58; color: #c9d1d9; }
+  .badge-refetch    { background: #58a6ff; color: #0d1117; }
+  .badge-cas_win    { background: #7ee787; color: #0d1117; }
+  .badge-cas_conflict { background: #f0883e; color: #0d1117; }
+  .badge-cas_attempt  { background: #8b949e; color: #0d1117; }
+  .badge-converged    { background: #3fb950; color: #0d1117; }
+  .log-msg { color: #c9d1d9; flex: 1; }
+
+  /* Converged flash */
+  .flash-converged {
+    animation: flash 1s ease;
+  }
+  @keyframes flash {
+    0%   { background: #0f2f10; }
+    50%  { background: #1a4f1a; }
+    100% { background: #161b22; }
+  }
+
+  /* Invalidation flash */
+  .flash-invalidate {
+    animation: flash-red 0.6s ease;
+  }
+  @keyframes flash-red {
+    0%   { background: #1f1210; }
+    50%  { background: #3f1f10; }
+    100% { }
+  }
+
+  .done-msg {
+    text-align: center;
+    padding: 8px;
+    color: #7ee787;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>SageMem — Live Coherence Demo</h1>
+    <div class="subtitle">GPU-memory-hierarchy-inspired memory layer for multi-agent LLM systems</div>
+  </div>
+</header>
+
+<div id="status-bar">Connecting to demo server...</div>
+
+<div class="main">
+  <!-- Agent A -->
+  <div class="agent-panel" id="panel-A">
+    <h2>Agent A <span class="agent-id">researcher-alpha</span></h2>
+    <div class="tier-box state-empty" id="a-l1">
+      <div class="tier-label">L1 — local cache</div>
+      <div class="tier-key">—</div>
+      <div class="tier-value"></div>
+      <div class="tier-mesi"></div>
+    </div>
+  </div>
+
+  <!-- Shared tiers -->
+  <div class="shared-panel">
+    <div class="shared-tier state-empty" id="shared-l2">
+      <h3>L2 — cluster (Redis)</h3>
+      <div class="s-label">key</div>
+      <div class="s-key" id="l2-key">—</div>
+      <div class="s-label" style="margin-top:6px">value</div>
+      <div class="s-value" id="l2-value"></div>
+    </div>
+    <div class="shared-tier state-empty" id="shared-l3">
+      <h3>L3 — global (Postgres)</h3>
+      <div class="s-label">key</div>
+      <div class="s-key" id="l3-key">—</div>
+      <div class="s-label" style="margin-top:6px">value</div>
+      <div class="s-value" id="l3-value"></div>
+    </div>
+  </div>
+
+  <!-- Agent B -->
+  <div class="agent-panel" id="panel-B">
+    <h2>Agent B <span class="agent-id">researcher-beta</span></h2>
+    <div class="tier-box state-empty" id="b-l1">
+      <div class="tier-label">L1 — local cache</div>
+      <div class="tier-key">—</div>
+      <div class="tier-value"></div>
+      <div class="tier-mesi"></div>
+    </div>
+  </div>
+</div>
+
+<div id="event-log">
+  <h3>Coherence Event Log</h3>
+</div>
+
+<script>
+const startTime = Date.now();
+
+function elapsed() {
+  return ((Date.now() - startTime) / 1000).toFixed(1) + 's';
+}
+
+function setStatus(msg) {
+  document.getElementById('status-bar').textContent = msg;
+}
+
+function updateAgentTier(agent, data) {
+  const id = (agent === 'A' ? 'a' : 'b') + '-l1';
+  const box = document.getElementById(id);
+  box.className = 'tier-box state-' + (data.state || 'empty');
+  box.querySelector('.tier-key').textContent   = data.key   || '—';
+  box.querySelector('.tier-value').textContent = data.value || '';
+  const mesi = data.mesi || '';
+  box.querySelector('.tier-mesi').innerHTML =
+    mesi ? `<span class="mesi-${mesi}">● ${mesi}</span>` : '';
+}
+
+function updateSharedTier(tier, data) {
+  const el = document.getElementById('shared-' + tier.toLowerCase());
+  if (!el) return;
+  el.className = 'shared-tier state-' + (data.state || 'empty');
+  document.getElementById(tier.toLowerCase() + '-key').textContent   = data.key   || '—';
+  document.getElementById(tier.toLowerCase() + '-value').textContent = data.value || '';
+}
+
+function logEvent(type, data) {
+  const log = document.getElementById('event-log');
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+
+  const badges = {
+    invalidate:   ['badge-invalidate',   'INVALIDATE'],
+    promote:      ['badge-promote',       'PROMOTE'],
+    hit:          ['badge-hit',           'HIT'],
+    miss:         ['badge-miss',          'MISS'],
+    refetch:      ['badge-refetch',       'RE-FETCH'],
+    cas_win:      ['badge-cas_win',       'CAS WIN'],
+    cas_conflict: ['badge-cas_conflict',  'CAS FAIL'],
+    cas_attempt:  ['badge-cas_attempt',   'CAS TRY'],
+    converged:    ['badge-converged',     'CONVERGED'],
+  };
+
+  const [cls, label] = badges[type] || ['badge-miss', type.toUpperCase()];
+
+  let msg = '';
+  if (type === 'invalidate')
+    msg = `Agent ${data.from_agent} → Agent ${data.to_agent}: key="${data.key}" v${data.version}`;
+  else if (type === 'promote')
+    msg = `Agent ${data.agent}: ${data.from_tier} → ${data.to_tier} key="${data.key}"`;
+  else if (type === 'hit' || type === 'miss' || type === 'refetch')
+    msg = `Agent ${data.agent} @ ${data.tier}: key="${data.key}"`;
+  else if (type === 'cas_attempt')
+    msg = `Agent ${data.agent} CAS attempt key="${data.key}" expected_version=${data.expected_version}`;
+  else if (type === 'cas_win')
+    msg = `Agent ${data.agent} won the CAS — write committed`;
+  else if (type === 'cas_conflict')
+    msg = `Agent ${data.agent}: ${data.msg}`;
+  else if (type === 'converged')
+    msg = `key="${data.key}" → "${data.value}"`;
+
+  entry.innerHTML = `
+    <span class="log-time">${elapsed()}</span>
+    <span class="log-badge ${cls}">${label}</span>
+    <span class="log-msg">${msg}</span>
+  `;
+  log.appendChild(entry);
+  log.scrollTop = log.scrollHeight;
+}
+
+function flash(elementId, cls) {
+  const el = document.getElementById(elementId);
+  el.classList.remove(cls);
+  void el.offsetWidth; // reflow
+  el.classList.add(cls);
+  setTimeout(() => el.classList.remove(cls), 1200);
+}
+
+const es = new EventSource('/events');
+
+es.onmessage = (e) => {
+  const data = JSON.parse(e.data);
+  const type = data.type;
+
+  if (type === 'status') {
+    setStatus(data.msg);
+  }
+  else if (type === 'agent_state') {
+    updateAgentTier(data.agent, data);
+    if (data.state === 'invalid') flash(data.agent === 'A' ? 'panel-A' : 'panel-B', 'flash-invalidate');
+  }
+  else if (type === 'tier_state') {
+    updateSharedTier(data.tier, data);
+  }
+  else if (type === 'event') {
+    logEvent(data.type, data);
+    if (data.type === 'invalidate') {
+      flash(data.to_agent === 'A' ? 'panel-A' : 'panel-B', 'flash-invalidate');
+    }
+  }
+  else if (type === 'converged') {
+    logEvent('converged', data);
+    flash('panel-A', 'flash-converged');
+    flash('panel-B', 'flash-converged');
+    flash('shared-l3', 'flash-converged');
+  }
+  else if (type === 'done') {
+    setStatus('Demo complete — refresh to replay');
+    es.close();
+    const log = document.getElementById('event-log');
+    const done = document.createElement('div');
+    done.className = 'done-msg';
+    done.textContent = '✓ All coherence invariants maintained';
+    log.appendChild(done);
+  }
+};
+
+es.onerror = () => {
+  setStatus('Connection lost — is the server running?');
+};
+</script>
+</body>
+</html>
