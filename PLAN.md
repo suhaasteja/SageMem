@@ -214,20 +214,20 @@ Expected: UI loads, agents animate, coherence events visible in real time. Recor
 
 ## Current Stage
 
-**Stage 0** — done, awaiting user confirmation.
+**Stage 8** — complete. All stages shipped.
 
 ---
 
 ## GitHub Push Log
 
-| Stage | Commit | Pushed |
-|-------|--------|--------|
-| 0     | —      | —      |
-| 1     | —      | —      |
-| 2     | —      | —      |
-| 3     | —      | —      |
-| 4     | —      | —      |
-| 5     | —      | —      |
-| 6     | —      | —      |
-| 7     | —      | —      |
-| 8     | —      | —      |
+| Stage | Description                                  | Pushed |
+|-------|----------------------------------------------|--------|
+| 0     | Skeleton + typed interfaces, smoke tests     | ✓      |
+| 1     | Four tiers in isolation + latency benchmark  | ✓      |
+| 2     | Hierarchical read path + Prometheus metrics  | ✓      |
+| 3     | Single-agent demo + Anthropic LLM client     | ✓      |
+| 4     | MESI coherence protocol + Hypothesis tests   | ✓      |
+| 5     | Capacity as capability + ScopedHierarchy     | ✓      |
+| 6     | Benchmark harness (3 workloads vs baseline)  | ✓      |
+| 7     | Live visualizer (FastAPI + SSE + HTML/JS)    | ✓      |
+| 8     | Docs + clean README                          | ✓      |
