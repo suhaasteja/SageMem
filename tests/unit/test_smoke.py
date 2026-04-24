@@ -53,7 +53,9 @@ def test_memory_hierarchy_instantiates():
 
 
 def test_memory_agent_instantiates():
-    """MemoryAgent must accept an agent_id and hierarchy without error."""
+    """MemoryAgent must accept an agent_id, hierarchy, and llm without error."""
+    from unittest.mock import AsyncMock
     h = MemoryHierarchy(tiers=[])
-    agent = MemoryAgent(agent_id="agent-0", hierarchy=h)
+    fake_llm = AsyncMock()
+    agent = MemoryAgent(agent_id="agent-0", hierarchy=h, llm=fake_llm)
     assert agent.agent_id == "agent-0"
