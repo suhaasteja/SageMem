@@ -200,3 +200,19 @@ The paper proposes a three-tier hierarchy and identifies two protocol gaps: cach
 - Not a production-grade distributed system (no multi-region, no HA)
 - Not an inference engine modification (we do not touch KV cache tensors)
 - Not LangGraph, Mem0, or Letta — those are what this is designed to replace
+
+---
+
+## Evaluation
+
+`locomo_eval/` contains a reproducible benchmark pipeline against the [LoCoMo](https://github.com/snap-research/locomo) dataset (1,540 QA pairs across 10 multi-session conversations), using the Mem0/Memobase evaluation methodology.
+
+```bash
+cd locomo_eval
+python scripts/download_dataset.py
+python scripts/run_full_eval.py --adapter full_context --runs 3
+python scripts/run_full_eval.py --adapter naive_rag --runs 3
+python scripts/run_full_eval.py --adapter my_system --runs 3
+```
+
+Requires `OPENAI_API_KEY` in `locomo_eval/.env`. See `locomo_eval/EVAL_PLAN.md` for full methodology.

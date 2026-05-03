@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "locomo-eval"
+version = "0.1.0"
+description = "LoCoMo evaluation pipeline for SageMem"
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=1.40",
+    "tiktoken>=0.7",
+    "numpy",
+    "pandas",
+    "tqdm",
+    "python-dotenv",
+    "pydantic>=2",
+    "faiss-cpu",
+    "nltk",
+    "rich",
+]
+
+[dependency-groups]
+dev = ["pytest", "pytest-asyncio", "ruff"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
