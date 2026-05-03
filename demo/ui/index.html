@@ -38,8 +38,7 @@
 
   .main {
     display: grid;
-    grid-template-columns: 1fr 220px 1fr;
-    gap: 0;
+    grid-template-columns: 1fr 240px 1fr;
     flex: 1;
     padding: 24px;
     gap: 16px;
@@ -111,6 +110,10 @@
   .shared-tier .s-label { font-size: 10px; color: #8b949e; text-transform: uppercase; }
   .shared-tier .s-key   { font-size: 12px; color: #79c0ff; margin-top: 3px; }
   .shared-tier .s-value { font-size: 11px; color: #a5d6ff; margin-top: 2px; word-break: break-word; }
+  /* DRAM gets a purple accent to distinguish semantic from structural tiers */
+  #shared-dram { border-color: #6e40c9; }
+  #shared-dram h3 { color: #d2a8ff; }
+  #shared-dram.state-written { background: #1a1230; border-color: #8957e5; }
 
   /* Event log */
   #event-log {
@@ -218,6 +221,13 @@
       <div class="s-key" id="l3-key">—</div>
       <div class="s-label" style="margin-top:6px">value</div>
       <div class="s-value" id="l3-value"></div>
+    </div>
+    <div class="shared-tier state-empty" id="shared-dram">
+      <h3>DRAM — semantic (pgvector)</h3>
+      <div class="s-label">key</div>
+      <div class="s-key" id="dram-key">—</div>
+      <div class="s-label" style="margin-top:6px">value</div>
+      <div class="s-value" id="dram-value"></div>
     </div>
   </div>
 
@@ -345,7 +355,9 @@ es.onmessage = (e) => {
     logEvent('converged', data);
     flash('panel-A', 'flash-converged');
     flash('panel-B', 'flash-converged');
+    flash('shared-l2', 'flash-converged');
     flash('shared-l3', 'flash-converged');
+    flash('shared-dram', 'flash-converged');
   }
   else if (type === 'done') {
     setStatus('Demo complete — refresh to replay');
