@@ -1,50 +1,63 @@
 """SageMem adapter — wires the LoCoMo eval harness to the sagemem memory system."""
+import os
 import sys
 import time
 from pathlib import Path
 
-import tiktoken
-
 from .base import AddStats, MemoryAdapter, SearchResult
 
 # Make the parent sagemem package importable from this sub-project
-_SAGEMEM_SRC = Path(__file__).parents[4] / "src"
+_SAGEMEM_SRC = Path(__file__).parents[3] / "src"
 if str(_SAGEMEM_SRC) not in sys.path:
     sys.path.insert(0, str(_SAGEMEM_SRC))
 
-_enc = tiktoken.get_encoding("cl100k_base")
+_PG_DSN = os.environ.get("SAGEMEM_PG_DSN", "postgresql://localhost/sagemem_test")
 
 
 def _count_tokens(text: str) -> int:
-    return len(_enc.encode(text))
+    import tiktoken
+    enc = tiktoken.get_encoding("cl100k_base")
+    return len(enc.encode(text))
+
+
+def _make_embedder():
+    """Return an async embedding callable using sentence-transformers."""
+    from sentence_transformers import SentenceTransformer
+    _model = SentenceTransformer("all-MiniLM-L6-v2")
+
+    async def _embed(text: str) -> list[float]:
+        return _model.encode(text, show_progress_bar=False).tolist()
+
+    return _embed
 
 
 class SageMemAdapter(MemoryAdapter):
     """
     Adapter for the sagemem memory hierarchy.
 
-    Ingestion: turns are stored in L1/L2/L3 using the MemoryHierarchy.
+    Ingestion: turns are stored in L1 + DRAM using MemoryHierarchy.
     Retrieval: DRAM semantic search returns top-k chunks as context.
 
-    NOTE: This adapter uses synchronous wrappers around async sagemem calls.
-    If sagemem grows a sync API, prefer that. For now we use asyncio.run().
+    Requires Postgres with pgvector (SAGEMEM_PG_DSN env var, default:
+    postgresql://localhost/sagemem_test).
+
+    NOTE: Uses asyncio.run() wrappers because the MemoryAdapter interface
+    is synchronous.
     """
 
     name = "my_system"
 
     def __init__(self) -> None:
-        # Lazy import so the harness can run without sagemem deps installed
-        # (e.g. when testing baselines only).
         try:
             import asyncio
             from sagemem.hierarchy import MemoryHierarchy
-            from sagemem.tiers.l1 import L1Cache
-            from sagemem.tiers.l2 import L2Cache
-            from sagemem.tiers.l3 import L3Store
-            from sagemem.tiers.dram import DRAMStore
+            from sagemem.tiers.l1 import L1Tier
+            from sagemem.tiers.dram import DRAMTier
             self._asyncio = asyncio
             self._MemoryHierarchy = MemoryHierarchy
-            self._L1 = L1Cache
+            self._L1Tier = L1Tier
+            self._DRAMTier = DRAMTier
+            self._embedder = _make_embedder()
             self._available = True
         except ImportError as e:
             print(f"[SageMemAdapter] sagemem not importable: {e}. Falling back to stub.")
@@ -54,14 +67,30 @@ class SageMemAdapter(MemoryAdapter):
 
     def _get_hierarchy(self, conversation_id: str):
         if conversation_id not in self._hierarchies:
-            self._hierarchies[conversation_id] = self._MemoryHierarchy()
+            safe_id = conversation_id.replace("-", "_").replace(":", "_")
+            async def _make():
+                l1 = self._L1Tier(capacity=512)
+                dram = self._DRAMTier(
+                    dsn=_PG_DSN,
+                    table=f"locomo_{safe_id}",
+                    embedding_dim=384,
+                    embedder=self._embedder,
+                )
+                await dram.connect()
+                return self._MemoryHierarchy(tiers=[l1, dram])
+            self._hierarchies[conversation_id] = self._asyncio.run(_make())
         return self._hierarchies[conversation_id]
 
     def reset(self, conversation_id: str) -> None:
         if conversation_id in self._hierarchies:
             h = self._hierarchies.pop(conversation_id)
             try:
-                self._asyncio.run(h.clear())
+                async def _teardown():
+                    await h.clear()
+                    # Disconnect DRAM pool (last tier)
+                    if hasattr(h.tiers[-1], "disconnect"):
+                        await h.tiers[-1].disconnect()
+                self._asyncio.run(_teardown())
             except Exception:
                 pass
 
@@ -87,7 +116,8 @@ class SageMemAdapter(MemoryAdapter):
                     "timestamp": timestamp,
                     "session": session_id,
                 }
-                await h.set(key, value)
+                # Write to DRAM (tier_index=1) so embeddings are computed
+                await h.set(key, value, tier_index=1)
 
         self._asyncio.run(_ingest())
         return AddStats(latency_ms=(time.perf_counter() - t0) * 1000)
@@ -107,6 +137,7 @@ class SageMemAdapter(MemoryAdapter):
         async def _search():
             return await h.semantic_search(query, top_k=top_k)
 
+        # Each result is the stored value dict: {"speaker": ..., "text": ..., ...}
         results = self._asyncio.run(_search())
         context = "\n\n".join(
             f"{r['speaker']}: {r['text']}" for r in results if isinstance(r, dict)

@@ -5,6 +5,10 @@ Tests the invariants that must hold regardless of event sequence:
 - After remote_write, state is always Invalid
 - After local_write, state is always Modified
 - Convergence: two agents writing concurrently always end in a consistent state
+
+Global MESI invariants (multi-agent):
+- If any agent holds Modified, all others must be Invalid for that key
+- No agent can hold Shared if another holds Modified for the same key
 """
 
 from hypothesis import given, settings, assume
@@ -115,3 +119,95 @@ def test_concurrent_write_both_converge_to_modified_or_invalid(state_a, state_b)
     if "remote_write" in _VALID_EVENTS[entry_b.state]:
         apply_event(entry_b, "remote_write")
         assert entry_b.state == MESIState.Invalid
+
+
+# ---------------------------------------------------------------------------
+# Global MESI invariants — multi-agent simulations
+# ---------------------------------------------------------------------------
+# These test the system-level properties that local state machine tests miss:
+# "if any cache holds Modified, no other cache may hold anything but Invalid."
+
+
+def _simulate_agent_sequence(n_agents: int, event_indices: list[int]) -> list[CacheEntry]:
+    """Simulate N agents each processing one event from a shared sequence.
+
+    Each agent starts Exclusive (clean copy, sole owner).
+    Events are chosen round-robin across agents from event_indices.
+
+    Two protocol rules are enforced:
+    1. Write (→ Modified): all other agents receive remote_write (→ Invalid).
+    2. Fetch (Invalid → Shared): any Modified holder first flushes to Shared
+       (write-back), modelling the MESI bus-snoop / write-back-on-read protocol.
+
+    Returns the final list of CacheEntry objects, one per agent.
+    """
+    entries = [
+        CacheEntry(key="shared-key", value=f"agent-{i}", state=MESIState.Exclusive)
+        for i in range(n_agents)
+    ]
+
+    for step, idx in enumerate(event_indices):
+        actor = step % n_agents
+        current_state = entries[actor].state
+        valid = _VALID_EVENTS[current_state]
+        event = valid[idx % len(valid)]
+
+        # Write-back-on-fetch: before a fetch completes, any Modified holder must
+        # flush (Modified → Shared) so the shared tier is coherent.
+        if event == "fetch":
+            for j, other in enumerate(entries):
+                if j != actor and other.state == MESIState.Modified:
+                    other.state = MESIState.Shared  # writeback to shared tier
+
+        apply_event(entries[actor], event)
+
+        # Write propagation: if actor wrote (→ Modified), invalidate all others.
+        if entries[actor].state == MESIState.Modified:
+            for j, other in enumerate(entries):
+                if j != actor and "remote_write" in _VALID_EVENTS[other.state]:
+                    apply_event(other, "remote_write")
+
+    return entries
+
+
+@given(
+    n_agents=st.integers(min_value=2, max_value=6),
+    event_indices=st.lists(st.integers(min_value=0, max_value=3), min_size=1, max_size=50),
+)
+@settings(max_examples=300)
+def test_modified_implies_all_others_invalid(n_agents, event_indices):
+    """Global invariant: if any agent holds Modified, every other must be Invalid.
+
+    This is the real MESI invariant — not just per-entry state transitions.
+    """
+    entries = _simulate_agent_sequence(n_agents, event_indices)
+
+    modified = [e for e in entries if e.state == MESIState.Modified]
+    if not modified:
+        return  # invariant vacuously satisfied
+
+    assert len(modified) == 1, (
+        f"More than one agent in Modified state: {[e for e in entries]}"
+    )
+    others = [e for e in entries if e.state != MESIState.Modified]
+    for other in others:
+        assert other.state == MESIState.Invalid, (
+            f"Expected Invalid but got {other.state.name} while another agent is Modified"
+        )
+
+
+@given(
+    n_agents=st.integers(min_value=2, max_value=6),
+    event_indices=st.lists(st.integers(min_value=0, max_value=3), min_size=1, max_size=50),
+)
+@settings(max_examples=300)
+def test_shared_never_coexists_with_modified(n_agents, event_indices):
+    """Global invariant: no agent can be Shared while another is Modified."""
+    entries = _simulate_agent_sequence(n_agents, event_indices)
+
+    has_modified = any(e.state == MESIState.Modified for e in entries)
+    has_shared = any(e.state == MESIState.Shared for e in entries)
+
+    assert not (has_modified and has_shared), (
+        f"Shared and Modified coexist: {[(e.state.name) for e in entries]}"
+    )

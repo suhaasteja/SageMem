@@ -108,3 +108,51 @@ async def test_second_get_hits_l1_after_promotion():
     await tiers[2].delete("k") # remove from L3 to prove L1 is serving it
 
     assert await h.get("k") == "v"  # served from L1
+
+
+async def test_clear_removes_from_all_tiers():
+    """clear() should empty every tier in the hierarchy."""
+    h, tiers = make_hierarchy(8, 8, 8)
+    for i, t in enumerate(tiers):
+        await t.set(f"k{i}", f"v{i}")
+
+    await h.clear()
+
+    for i, t in enumerate(tiers):
+        assert await t.get(f"k{i}") is None
+
+
+async def test_semantic_search_delegates_to_tier_with_embedder():
+    """semantic_search() should use the last tier that has search + embedder."""
+    import asyncio
+
+    recorded_embeddings: list = []
+
+    async def fake_embedder(text: str) -> list[float]:
+        recorded_embeddings.append(text)
+        return [0.1, 0.2, 0.3]
+
+    class FakeDRAM(L1Tier):
+        def __init__(self):
+            super().__init__(capacity=8)
+            self.embedder = fake_embedder
+
+        async def search(self, embedding: list[float], top_k: int = 5) -> list[dict]:
+            return [{"value": {"speaker": "Alice", "text": "hello"}, "distance": 0.1}]
+
+    dram = FakeDRAM()
+    l1 = L1Tier(capacity=8)
+    h = MemoryHierarchy(tiers=[l1, dram])
+
+    results = await h.semantic_search("find something", top_k=3)
+
+    assert len(results) == 1
+    assert results[0]["speaker"] == "Alice"
+    assert recorded_embeddings == ["find something"]
+
+
+async def test_semantic_search_returns_empty_when_no_capable_tier():
+    """semantic_search() returns [] when no tier has search + embedder."""
+    h, _ = make_hierarchy(8, 8)
+    results = await h.semantic_search("anything")
+    assert results == []

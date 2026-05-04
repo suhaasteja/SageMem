@@ -96,3 +96,22 @@ class MemoryHierarchy:
         if tier_index >= len(self.tiers):
             raise IndexError(f"tier_index {tier_index} out of range.")
         return await self.tiers[tier_index].exists(key)
+
+    async def clear(self) -> None:
+        """Clear all entries from every tier in the hierarchy."""
+        for tier in self.tiers:
+            await tier.clear()
+
+    async def semantic_search(self, query: str, top_k: int = 5) -> list[Any]:
+        """Search for entries semantically similar to query.
+
+        Delegates to the last tier that has both a `search` method and an
+        active embedder. Returns a list of stored value dicts, closest first.
+        Returns an empty list if no semantic-capable tier is found.
+        """
+        for tier in reversed(self.tiers):
+            if hasattr(tier, "search") and hasattr(tier, "embedder") and tier.embedder is not None:
+                embedding = await tier.embedder(query)
+                results = await tier.search(embedding, top_k=top_k)
+                return [r["value"] for r in results]
+        return []

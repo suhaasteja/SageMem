@@ -31,20 +31,6 @@ The GPU memory hierarchy was designed from day one for many parallel processors 
 
 ---
 
-## Benchmark results
-
-```
-Debate workload (2 agents, conflicting writes):
-  Tier-aware : 50 coherence invalidations fired — stale reads detected and corrected
-  Flat memory: 0 invalidations — stale reads persist silently
-
-Parallel search (4 agents, overlapping key sets):
-  Tier-aware : 43% of reads served from shared L2 (cross-agent cache hits)
-  Flat memory: 0% — each agent is an island, work cannot be shared
-```
-
----
-
 ## Installation
 
 Requires Python 3.12+, Redis, and Postgres with pgvector.
